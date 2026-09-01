@@ -8,6 +8,7 @@ RUN apt-get update \
     gosu \
     procps \
     python3 \
+    python3-openpyxl \
     build-essential \
     zip \
   && rm -rf /var/lib/apt/lists/*
