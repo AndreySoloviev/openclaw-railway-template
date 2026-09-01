@@ -14,6 +14,13 @@ RUN apt-get update \
 
 RUN npm install -g openclaw@2026.8.1 clawhub@latest
 
+# Системные библиотеки для Chromium. Список берётся у самого playwright,
+# поэтому следует за версией openclaw. Сам бинарь браузера живёт на томе
+# /data/.cache/ms-playwright и в образ не запекается.
+RUN apt-get update \
+  && node /usr/local/lib/node_modules/openclaw/node_modules/playwright-core/cli.js install-deps chromium \
+  && rm -rf /var/lib/apt/lists/*
+
 # Backward-compatibility shim for older OPENCLAW_ENTRY values.
 RUN mkdir -p /openclaw \
   && ln -sfn /usr/local/lib/node_modules/openclaw/dist /openclaw/dist
