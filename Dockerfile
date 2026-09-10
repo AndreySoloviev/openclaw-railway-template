@@ -13,7 +13,7 @@ RUN apt-get update \
     zip \
   && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g openclaw@2026.9.2 clawhub@latest
+RUN npm install -g openclaw@2026.9.3 clawhub@latest
 
 # Системные библиотеки для Chromium. Список берётся у самого playwright,
 # поэтому следует за версией openclaw. Сам бинарь браузера живёт на томе
