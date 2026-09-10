@@ -1,4 +1,4 @@
-FROM node:22-bookworm
+FROM node:26-bookworm
 
 RUN apt-get update \
   && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -29,7 +29,8 @@ RUN mkdir -p /openclaw \
 WORKDIR /app
 
 COPY package.json pnpm-lock.yaml ./
-RUN corepack enable && corepack prepare pnpm@10.34.5 --activate && pnpm install --frozen-lockfile --prod
+# Node 25+ не поставляет corepack, поэтому pnpm ставится напрямую из npm.
+RUN npm install -g pnpm@10.34.5 && pnpm install --frozen-lockfile --prod
 
 COPY src ./src
 COPY --chmod=755 entrypoint.sh ./entrypoint.sh
