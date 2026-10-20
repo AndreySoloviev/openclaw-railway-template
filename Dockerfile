@@ -33,6 +33,9 @@ COPY package.json pnpm-lock.yaml ./
 RUN npm install -g pnpm@10.34.5 && pnpm install --frozen-lockfile --prod
 
 COPY src ./src
+# Канал Яндекс Мессенджера. Ставится в OpenClaw через `plugins install --link` на этот путь,
+# запись об установке живёт на томе, код обновляется вместе с образом.
+COPY plugins ./plugins
 COPY --chmod=755 entrypoint.sh ./entrypoint.sh
 
 RUN useradd -m -s /bin/bash openclaw \

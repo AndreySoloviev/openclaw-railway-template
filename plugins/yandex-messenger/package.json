@@ -1,0 +1,19 @@
+{
+  "name": "@leonid/openclaw-yandex-messenger",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenClaw channel plugin for Yandex Messenger (Yandex 360 Bot API)",
+  "openclaw": {
+    "extensions": ["./index.ts"],
+    "setupEntry": "./setup-entry.ts",
+    "channel": {
+      "id": "yandex-messenger",
+      "label": "Yandex Messenger",
+      "blurb": "Групповые чаты и треды Яндекс Мессенджера (Яндекс 360).",
+      "configuredState": {
+        "env": { "anyOf": ["YANDEX_MESSENGER_TOKEN"] }
+      }
+    }
+  }
+}

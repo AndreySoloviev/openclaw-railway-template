@@ -1,0 +1,36 @@
+{
+  "id": "yandex-messenger",
+  "categories": ["channels"],
+  "name": "Yandex Messenger",
+  "description": "Канал Яндекс Мессенджера (Яндекс 360): группы, треды, личка по белому списку",
+  "activation": { "onStartup": false },
+  "channels": ["yandex-messenger"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "channelConfigs": {
+    "yandex-messenger": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "name": { "type": "string" },
+          "token": { "type": "string" },
+          "dmPolicy": { "type": "string", "enum": ["pairing", "allowlist", "open", "disabled"] },
+          "allowFrom": { "type": "array", "items": { "type": ["string", "number"] } },
+          "groupPolicy": { "type": "string", "enum": ["open", "allowlist", "disabled"] },
+          "groupAllowFrom": { "type": "array", "items": { "type": ["string", "number"] } },
+          "dmDenyText": { "type": "string" },
+          "dmDenyIntervalHours": { "type": "number", "minimum": 0 },
+          "pollIntervalMs": { "type": "integer", "minimum": 500, "maximum": 60000 }
+        }
+      },
+      "uiHints": {
+        "token": { "label": "Bot token", "sensitive": true }
+      }
+    }
+  }
+}
