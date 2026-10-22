@@ -31,6 +31,8 @@ import {
   type ResolvedYandexAccount,
 } from "./accounts.js";
 import { getSelf, sendText } from "./api.js";
+import { redactForLog, sendMediaWithCaption, type MediaAccess } from "./media.js";
+import { CaptionSender, mediaFailureNotice, resolveMediaMaxBytes } from "./media-policy.js";
 import { monitorYandexProvider, TEXT_CHUNK_LIMIT } from "./monitor.js";
 import {
   CHANNEL_ID,
@@ -56,13 +58,16 @@ function stripPrefix(entry: string): string {
   return entry.trim().replace(/^(yandex-messenger|ym):/i, "");
 }
 
-async function sendOutboundText(ctx: {
+type OutboundCtx = {
   cfg: OpenClawConfig;
+  agentId?: string | null;
   to: string;
   text: string;
   accountId?: string | null;
   threadId?: string | number | null;
-}): Promise<{ messageId: string }> {
+};
+
+function resolveOutboundTarget(ctx: OutboundCtx) {
   const account = resolveAccount({ cfg: ctx.cfg, accountId: ctx.accountId });
   if (!account.token) {
     throw new Error(`${CHANNEL_ID}: token is not configured`);
@@ -79,22 +84,81 @@ async function sendOutboundText(ctx: {
     (explicitThreadId !== undefined && Number.isSafeInteger(explicitThreadId) && explicitThreadId > 0
       ? explicitThreadId
       : undefined);
+  return { account, recipient: toRecipient(chatId), threadId };
+}
+
+async function sendOutboundText(ctx: OutboundCtx): Promise<{ messageId: string }> {
+  const { account, recipient, threadId } = resolveOutboundTarget(ctx);
   const text = sanitizeAssistantVisibleText(ctx.text);
   if (!text.trim()) {
     throw new Error(`${CHANNEL_ID}: nothing to send after sanitizing text`);
   }
-  const result = await sendText(account.token, toRecipient(chatId), text, { threadId });
+  const result = await sendText(account.token, recipient, text, { threadId });
   return { messageId: String(result.message_id) };
+}
+
+async function sendOutboundMedia(
+  ctx: OutboundCtx & {
+    mediaUrl?: string;
+    mediaAccess?: MediaAccess;
+    mediaLocalRoots?: readonly string[];
+    mediaReadFile?: (filePath: string) => Promise<Buffer>;
+    forceDocument?: boolean;
+  },
+): Promise<{ messageId: string }> {
+  if (!ctx.mediaUrl) {
+    return await sendOutboundText(ctx);
+  }
+  const { account, recipient, threadId } = resolveOutboundTarget(ctx);
+  const mediaUrl = ctx.mediaUrl;
+  const caption = sanitizeAssistantVisibleText(ctx.text ?? "").trim();
+  const sendOne = async (chunk: string) => {
+    await sendText(account.token, recipient, chunk, { threadId });
+  };
+  const captionSender = new CaptionSender(chunkTextForOutbound(caption, TEXT_CHUNK_LIMIT), sendOne);
+  try {
+    const result = await sendMediaWithCaption({
+      token: account.token,
+      cfg: ctx.cfg,
+      agentId: ctx.agentId ?? undefined,
+      recipient,
+      mediaUrl,
+      threadId,
+      maxBytes: resolveMediaMaxBytes(account.config.mediaMaxMb),
+      forceDocument: ctx.forceDocument,
+      access: {
+        localRoots: ctx.mediaAccess?.localRoots ?? ctx.mediaLocalRoots,
+        readFile: ctx.mediaAccess?.readFile ?? ctx.mediaReadFile,
+        workspaceDir: ctx.mediaAccess?.workspaceDir,
+      },
+      sendCaption: captionSender.isEmpty ? undefined : () => captionSender.sendAll(),
+    });
+    return { messageId: String(result.message_id) };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    const notice = [captionSender.remainingText(), mediaFailureNotice(mediaUrl)]
+      .filter(Boolean)
+      .join("\n\n");
+    let noticeDelivered = true;
+    try {
+      for (const chunk of chunkTextForOutbound(notice, TEXT_CHUNK_LIMIT)) {
+        await sendOne(chunk);
+      }
+    } catch {
+      noticeDelivered = false;
+    }
+    throw new Error(
+      `${CHANNEL_ID}: media send failed (${redactForLog(mediaUrl)}): ${redactForLog(reason)}` +
+        (noticeDelivered ? "" : "; failure notice was not delivered either"),
+      { cause: err },
+    );
+  }
 }
 
 const sendResultAdapter = createAttachedChannelResultAdapter({
   channel: CHANNEL_ID,
   sendText: sendOutboundText,
-  sendMedia: async (ctx: Parameters<typeof sendOutboundText>[0] & { mediaUrl?: string }) =>
-    await sendOutboundText({
-      ...ctx,
-      text: [ctx.text, ctx.mediaUrl].filter(Boolean).join("\n"),
-    }),
+  sendMedia: sendOutboundMedia,
 });
 
 const configAdapter = createScopedChannelConfigAdapter<ResolvedYandexAccount>({
@@ -135,7 +199,7 @@ export const yandexMessengerPlugin: ChannelPlugin<ResolvedYandexAccount, ProbeRe
       meta,
       capabilities: {
         chatTypes: ["direct", "group"],
-        media: false,
+        media: true,
         reactions: false,
         threads: true,
         polls: false,

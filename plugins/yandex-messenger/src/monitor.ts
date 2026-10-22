@@ -34,6 +34,8 @@ import {
   resolveMentionFacts,
   resolveThreadRoot,
 } from "./policy.js";
+import { redactForLog, sendMediaWithCaption } from "./media.js";
+import { CaptionSender, mediaFailureNotice, resolveMediaMaxBytes } from "./media-policy.js";
 import { getYandexRuntime } from "./runtime.js";
 import { PluginStateFile, resolvePluginStatePath } from "./state-file.js";
 
@@ -323,8 +325,35 @@ async function handleMessage(ctx: MonitorContext, message: YandexMessage): Promi
             ctx.statusSink?.({ lastOutboundAt: Date.now() });
           },
           sendMedia: async ({ mediaUrl, caption }: { mediaUrl: string; caption?: string }) => {
-            const text = [caption, mediaUrl].filter(Boolean).join("\n");
-            await sendText(ctx.token, { chat_id: chatId }, text, { threadId: threadRoot });
+            const chunkText = (value: string) =>
+              core.channel.text.chunkMarkdownTextWithMode(value, TEXT_CHUNK_LIMIT, chunkMode);
+            const sendOne = async (chunk: string) => {
+              await sendText(ctx.token, { chat_id: chatId }, chunk, { threadId: threadRoot });
+            };
+            const captionSender = new CaptionSender(chunkText(caption?.trim() ?? ""), sendOne);
+            try {
+              await sendMediaWithCaption({
+                token: ctx.token,
+                cfg: config,
+                agentId: route.agentId,
+                recipient: { chat_id: chatId },
+                mediaUrl,
+                threadId: threadRoot,
+                maxBytes: resolveMediaMaxBytes(account.config.mediaMaxMb),
+                sendCaption: captionSender.isEmpty ? undefined : () => captionSender.sendAll(),
+              });
+            } catch (err) {
+              const reason = err instanceof Error ? err.message : String(err);
+              ctx.runtime.error?.(
+                `[${CHANNEL_ID}] media send failed (${redactForLog(mediaUrl)}): ${redactForLog(reason)}`,
+              );
+              const notice = [captionSender.remainingText(), mediaFailureNotice(mediaUrl)]
+                .filter(Boolean)
+                .join("\n\n");
+              for (const chunk of chunkText(notice)) {
+                await sendOne(chunk);
+              }
+            }
             ctx.statusSink?.({ lastOutboundAt: Date.now() });
           },
         });

@@ -15,6 +15,7 @@ export type YandexAccountConfig = {
   dmDenyText?: string;
   dmDenyIntervalHours?: number;
   pollIntervalMs?: number;
+  mediaMaxMb?: number;
 };
 
 export type ResolvedYandexAccount = {

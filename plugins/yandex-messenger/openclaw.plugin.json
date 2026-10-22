@@ -25,7 +25,8 @@
           "groupAllowFrom": { "type": "array", "items": { "type": ["string", "number"] } },
           "dmDenyText": { "type": "string" },
           "dmDenyIntervalHours": { "type": "number", "minimum": 0 },
-          "pollIntervalMs": { "type": "integer", "minimum": 500, "maximum": 60000 }
+          "pollIntervalMs": { "type": "integer", "minimum": 500, "maximum": 60000 },
+          "mediaMaxMb": { "type": "number", "exclusiveMinimum": 0, "maximum": 1024 }
         }
       },
       "uiHints": {

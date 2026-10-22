@@ -1,5 +1,6 @@
 const API_BASE = "https://botapi.messenger.yandex.net/bot/v1";
 const DEFAULT_TIMEOUT_MS = 15_000;
+const UPLOAD_TIMEOUT_MS = 120_000;
 
 export type YandexUser = {
   id: string;
@@ -136,5 +137,82 @@ export async function sendTyping(
     "/messages/sendTyping/",
     { ...recipient, thread_id: threadId, timeout: 10 },
     5_000,
+  );
+}
+
+export type YandexUpload = {
+  data: Uint8Array<ArrayBuffer>;
+  fileName: string;
+  contentType?: string;
+};
+
+async function callMultipart<T>(
+  token: string,
+  path: string,
+  recipient: YandexRecipient,
+  field: "document" | "image",
+  upload: YandexUpload,
+  threadId: number | undefined,
+  timeoutMs: number,
+): Promise<T> {
+  const form = new FormData();
+  for (const [key, value] of Object.entries(recipient)) {
+    form.set(key, value);
+  }
+  if (threadId !== undefined) {
+    form.set("thread_id", String(threadId));
+  }
+  form.set(
+    field,
+    new Blob([upload.data], { type: upload.contentType || "application/octet-stream" }),
+    upload.fileName,
+  );
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: { Authorization: `OAuth ${token}` },
+    body: form,
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const json = (await response.json().catch(() => ({}))) as { ok?: boolean; description?: string };
+  if (!response.ok || json.ok === false) {
+    throw new YandexApiError(
+      `Yandex Messenger ${path} failed: ${response.status} ${json.description ?? ""}`.trim(),
+      response.status,
+    );
+  }
+  return json as T;
+}
+
+export async function sendFile(
+  token: string,
+  recipient: YandexRecipient,
+  upload: YandexUpload,
+  options: { threadId?: number; timeoutMs?: number } = {},
+): Promise<{ message_id: number }> {
+  return await callMultipart(
+    token,
+    "/messages/sendFile/",
+    recipient,
+    "document",
+    upload,
+    options.threadId,
+    options.timeoutMs ?? UPLOAD_TIMEOUT_MS,
+  );
+}
+
+export async function sendImage(
+  token: string,
+  recipient: YandexRecipient,
+  upload: YandexUpload,
+  options: { threadId?: number; timeoutMs?: number } = {},
+): Promise<{ message_id: number }> {
+  return await callMultipart(
+    token,
+    "/messages/sendImage/",
+    recipient,
+    "image",
+    upload,
+    options.threadId,
+    options.timeoutMs ?? UPLOAD_TIMEOUT_MS,
   );
 }
