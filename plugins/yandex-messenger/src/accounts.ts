@@ -60,8 +60,10 @@ export function isAccountConfigured(account: ResolvedYandexAccount): boolean {
 
 export function inspectAccount(params: { cfg: OpenClawConfig; accountId?: string | null }) {
   const account = resolveAccount(params);
+  const { token: _token, ...configWithoutToken } = account.config;
   return {
     accountId: account.accountId,
+    config: configWithoutToken,
     name: account.name,
     enabled: account.enabled,
     configured: isAccountConfigured(account),

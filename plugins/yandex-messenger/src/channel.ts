@@ -167,15 +167,15 @@ const configAdapter = createScopedChannelConfigAdapter<ResolvedYandexAccount>({
   resolveAccount: adaptScopedAccountAccessor(resolveAccount),
   defaultAccountId: () => DEFAULT_ACCOUNT_ID,
   clearBaseFields: ["token", "name"],
-  resolveAllowFrom: (account: ResolvedYandexAccount) => account.config.allowFrom,
+  resolveAllowFrom: (account: ResolvedYandexAccount) => account.config?.allowFrom,
   formatAllowFrom: (allowFrom) =>
     formatAllowFromLowercase({ allowFrom, stripPrefixRe: /^(yandex-messenger|ym):/i }),
 });
 
 const resolveDmPolicy = createScopedDmSecurityResolver<ResolvedYandexAccount>({
   channelKey: CHANNEL_ID,
-  resolvePolicy: (account) => account.config.dmPolicy ?? "allowlist",
-  resolveAllowFrom: (account) => account.config.allowFrom,
+  resolvePolicy: (account) => account.config?.dmPolicy ?? "allowlist",
+  resolveAllowFrom: (account) => account.config?.allowFrom,
   policyPathSuffix: "dmPolicy",
   normalizeEntry: stripPrefix,
 });

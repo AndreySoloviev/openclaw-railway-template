@@ -13,7 +13,10 @@ RUN apt-get update \
     zip \
   && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g openclaw@2026.9.33 clawhub@latest
+# npm не запускает установочные скрипты без явного разрешения, а postinstall openclaw
+# чистит файлы прошлой версии и восстанавливает нативную сборку fs-safe.
+RUN npm install -g --allow-scripts=@google/genai,esbuild,koffi,protobufjs,openclaw \
+  openclaw@2026.9.35 clawhub@0.23.3
 
 # Системные библиотеки для Chromium. Список берётся у самого playwright,
 # поэтому следует за версией openclaw. Сам бинарь браузера живёт на томе
