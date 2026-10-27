@@ -174,6 +174,26 @@ let gatewayProc = null;
 let gatewayStarting = null;
 let shuttingDown = false;
 
+// Число повторов не ограничено: после пересоздания контейнера аренда gateway
+// старого контейнера ещё держится на томе, и первые запуски падают.
+const RESTART_DELAYS_MS = [2_000, 5_000, 10_000, 20_000, 40_000, 60_000];
+let restartAttempt = 0;
+let restartTimer = null;
+
+function scheduleGatewayRestart(reason) {
+  if (shuttingDown || restartTimer || !isConfigured()) return;
+  const delay =
+    RESTART_DELAYS_MS[Math.min(restartAttempt, RESTART_DELAYS_MS.length - 1)];
+  restartAttempt += 1;
+  log.warn("gateway", `${reason}; restart attempt ${restartAttempt} in ${delay / 1000}s`);
+  restartTimer = setTimeout(() => {
+    restartTimer = null;
+    if (shuttingDown || gatewayProc || !isConfigured()) return;
+    log.info("gateway", `restart attempt ${restartAttempt}`);
+    ensureGatewayRunning().catch(() => {});
+  }, delay);
+}
+
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -184,6 +204,7 @@ async function waitForGatewayReady(opts = {}) {
   const endpoints = ["/openclaw", "/openclaw", "/", "/health"];
 
   while (Date.now() - start < timeoutMs) {
+    if (opts.proc && gatewayProc !== opts.proc) return false;
     for (const endpoint of endpoints) {
       try {
         const res = await fetch(`${GATEWAY_TARGET}${endpoint}`, {
@@ -232,7 +253,7 @@ async function startGateway() {
     "--allow-unconfigured",
   ];
 
-  gatewayProc = childProcess.spawn(OPENCLAW_NODE, clawArgs(args), {
+  const proc = childProcess.spawn(OPENCLAW_NODE, clawArgs(args), {
     stdio: "inherit",
     env: {
       ...process.env,
@@ -240,6 +261,7 @@ async function startGateway() {
       OPENCLAW_WORKSPACE_DIR: WORKSPACE_DIR,
     },
   });
+  gatewayProc = proc;
 
   const safeArgs = args.map((arg, i) =>
     args[i - 1] === "--token" ? "[REDACTED]" : arg
@@ -249,25 +271,22 @@ async function startGateway() {
   log.info("gateway", `WORKSPACE_DIR: ${WORKSPACE_DIR}`);
   log.info("gateway", `config path: ${configPath()}`);
 
-  gatewayProc.on("error", (err) => {
+  // События процесса, уже заменённого через restartGateway(), текущий не трогают.
+  proc.on("error", (err) => {
     log.error("gateway", `spawn error: ${String(err)}`);
+    if (gatewayProc !== proc) return;
     gatewayProc = null;
+    scheduleGatewayRestart("spawn failed");
   });
 
-  gatewayProc.on("exit", (code, signal) => {
+  proc.on("exit", (code, signal) => {
     log.error("gateway", `exited code=${code} signal=${signal}`);
+    if (gatewayProc !== proc) return;
     gatewayProc = null;
-    if (!shuttingDown && isConfigured()) {
-      log.info("gateway", "scheduling auto-restart in 2s...");
-      setTimeout(() => {
-        if (!shuttingDown && !gatewayProc && isConfigured()) {
-          ensureGatewayRunning().catch((err) => {
-            log.error("gateway", `auto-restart failed: ${err.message}`);
-          });
-        }
-      }, 2000);
-    }
+    scheduleGatewayRestart(`exited code=${code} signal=${signal}`);
   });
+
+  return proc;
 }
 
 async function ensureGatewayRunning() {
@@ -276,12 +295,21 @@ async function ensureGatewayRunning() {
   if (!gatewayStarting) {
     gatewayStarting = (async () => {
       await syncAllowedOrigins();
-      await startGateway();
-      const ready = await waitForGatewayReady({ timeoutMs: 60_000 });
+      const proc = await startGateway();
+      const ready = await waitForGatewayReady({ timeoutMs: 60_000, proc });
       if (!ready) {
-        throw new Error("Gateway did not become ready in time");
+        throw new Error(
+          proc && gatewayProc !== proc
+            ? "Gateway exited before becoming ready"
+            : "Gateway did not become ready in time"
+        );
       }
-    })().finally(() => {
+      restartAttempt = 0;
+    })().catch((err) => {
+      log.error("gateway", `start failed: ${err.message}`);
+      if (!gatewayProc) scheduleGatewayRestart("start failed");
+      throw err;
+    }).finally(() => {
       gatewayStarting = null;
     });
   }
@@ -299,13 +327,14 @@ function isGatewayReady() {
 
 async function restartGateway() {
   if (gatewayProc) {
+    const old = gatewayProc;
+    gatewayProc = null;
     try {
-      gatewayProc.kill("SIGTERM");
+      old.kill("SIGTERM");
     } catch (err) {
       log.warn("gateway", `kill error: ${err.message}`);
     }
     await sleep(750);
-    gatewayProc = null;
   }
   return ensureGatewayRunning();
 }
